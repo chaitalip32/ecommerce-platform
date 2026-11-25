@@ -84,3 +84,47 @@ class ProductImageSerializer(serializers.ModelSerializer):
                     })
             
             return attrs
+
+class ProductVariantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductVariant
+
+        fields=[
+            "id",
+            "product",
+            "sku",
+            "variant_name",
+            "attributes",
+            "price",
+            "compare_at_price",
+            "stock_quantity",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields=["id","created_at","updated_at"]
+
+        def validate(self, attrs):
+
+            price=attrs.get(
+                "price",
+                getattr(self.instance,"price",None)
+            )
+
+            compare_at_price = attrs.get(
+                "compare_at_price",
+                getattr(self.isinstance,"compare_at_price",None)
+            )
+
+            if(
+                compare_at_price is not None
+               and price is not None
+               and compare_at_price < price
+            ):
+                raise serializers.ValidationError({
+                    "compare_at_price":
+                    "compare-at price must be greater that equal to selling price"
+                })
+            
+            return attrs

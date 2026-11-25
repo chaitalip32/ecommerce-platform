@@ -1,6 +1,6 @@
 from django.shortcuts import render
-from .serializers import CategorySerializer, ProductSerializer, ProductImageSerializer
-from .models import Category, Product, ProductImage
+from .serializers import CategorySerializer, ProductSerializer, ProductImageSerializer, ProductVariantSerializer
+from .models import Category, Product, ProductImage, ProductVariant
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, AllowAny
 
@@ -51,4 +51,22 @@ class ProductImageViewSet(viewsets.ModelViewSet):
 
         return [IsAdminUser()]
 
-        
+class ProductVariantViewSet(viewsets.ModelViewSet):
+    serializer_class = ProductVariantSerializer
+
+    def get_queryset(self):
+        queryset = ProductVariant.objects.select_related("product")
+
+        if self.request.user.is_staff:
+            return queryset.all()
+
+        return queryset.filter(
+            product__is_active = True,
+            is_active=True
+        )
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            return [AllowAny()]
+
+        return [IsAdminUser()]
