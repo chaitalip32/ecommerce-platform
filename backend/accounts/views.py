@@ -46,7 +46,7 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 
 class AddressViewSet(viewsets.ModelViewSet):
     serializer_class = AddressSerializer
-    def get_query(self):
+    def get_queryset(self):
         return Address.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):

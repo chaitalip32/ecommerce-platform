@@ -40,7 +40,10 @@ class ProfileSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = ["id"]
+
 class AddressSerializer(serializers.ModelSerializer):
-    model = Address
-    fields = "__all__"
-    read_only_fields = ["id","user","created_at","updated_at"]
+
+    class Meta:
+        model = Address
+        fields = "__all__"
+        read_only_fields = ["id","user","created_at","updated_at"]
