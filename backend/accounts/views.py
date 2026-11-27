@@ -10,6 +10,11 @@ from .serializers import(
     AddressSerializer
 )
 
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+from cart.services import merge_guest_cart
+
 # 1. Customer Registration
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
@@ -51,4 +56,30 @@ class AddressViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-    
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+
+    def validate(self, attrs):
+
+        # Generate access and refresh tokens normally
+        data = super().validate(attrs)
+
+        # Get the current request.
+        request = self.context["request"]
+
+        # Get the guest session key before it is lost
+        session_key = request.session.session_key
+
+        # Merge guest cart after successful authentication
+        cart_merge = merge_guest_cart(
+            user=self.user,
+            session_key=session_key,
+        )
+
+        # Include merge information in the login response
+        data["cart_merge"] = cart_merge
+
+        return data
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer 

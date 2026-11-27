@@ -8,6 +8,8 @@ from .models import Cart,CartItem
 from .serializer import CartSerializer, CartItemSerializer
 from catalog.models import ProductVariant
 
+
+
 class AddToCartView(APIView):
 
     permission_classes=[AllowAny]
@@ -107,3 +109,258 @@ class AddToCartView(APIView):
             },
             status= status.HTTP_201_CREATED
         )
+
+class ViewCartView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+
+        # 1. Identify the customer's cart
+        if request.user.is_authenticated:
+
+            cart = Cart.objects.filter(
+                user = request.user,
+                status = "ACTIVE"
+            ).first()
+
+        else:
+
+            session_key = request.session.session_key
+
+            if not session_key:
+                return Response({
+                    "message": "Your cart is empty.",
+                    "items": [],
+                    "total_items": 0,
+                    "subtotal": "0.00"
+                })
+
+            cart = Cart.objects.filter(
+                session_key = session_key,
+                status = "ACTIVE"
+            ).first()
+
+        # 2. Handle empty cart
+        if not cart:
+            return Response({
+                "message": "Your cart is empty",
+                "items": [],
+                "total_items": 0,
+                "subtotal": "0.00"
+            })
+
+        # 3. Retrieve cart items
+        cart_items = cart.items.select_related(
+            "variant",  
+            "variant__product"
+        ).all()
+
+        # 4. Serialize cart items
+        serializer = CartItemSerializer(
+            cart_items,
+            many=True
+        )
+
+        # 5. Calculate Totals
+        total_items = sum(
+            item.quantity for item in cart_items
+        )
+
+        subtotal = sum(
+            item.quantity * item.variant.price
+            for item in cart_items
+        )
+
+        # 6. Return response
+        return Response({
+            "cart_id": cart.id,
+            "status": cart.status,
+            "items": serializer.data,
+            "total_items": total_items,
+            "subtotal": str(subtotal)
+        })
+
+class UpdateCartItemView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def patch(self, request, item_id):
+        # 1. Identify the customers active cart
+        if request.user.is_authenticated:
+
+            cart = Cart.objects.filter(
+                user = request.user,
+                status = "ACTIVE"
+            ).first()
+
+        else:
+
+            session_key = request.session.session_key
+
+            if not session_key:
+                return Response(
+                    {"error":"Cart not found."},
+                    status= status.HTTP_404_NOT_FOUND
+                )
+
+            cart = Cart.objects.filter(
+                session_key = session_key,
+                status = "ACTIVE"
+            ).first()
+
+        if not cart:
+            return Response(
+                {"error":"Cart not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 2. Find the item inside this customers cart
+        cart_item = cart.items.select_related(
+            "variant"
+        ).filter(id=item_id).first()
+
+        if not cart_item:
+            return Response(
+                {"error":"Cart not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. Validate the new quantity
+        serializer = CartItemSerializer(
+            cart_item,
+            data=request.data,
+            partial = True
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        new_quantity = serializer.validated_data.get(
+            "quantity",
+            cart_item.quantity
+        )
+
+        # 4. Check available stock
+        if new_quantity > cart_item.variant.stock_quantity:
+            return Response(
+                {
+                    "error":(
+                        f"Only {cart_item.variant.stock_quantity}",
+                        "units are available."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 5. Save the updated quantity
+        serializer.save()
+
+        return Response(
+            {
+                "message": "Cart quality updated successfully.",
+                "cart_item": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class RemoveCartItemView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def delete(self, request, item_id):
+
+        # 1. Identify the customer's active cart
+        if request.user.is_authenticated:
+
+            cart = Cart.objects.filter(
+                user=request.user,
+                status="ACTIVE"
+            ).first()
+
+        else:
+
+            session_key = request.session.session_key
+
+            if not session_key:
+                return Response(
+                    {"error": "Cart not found."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            cart = Cart.objects.filter(
+                session_key=session_key,
+                status="ACTIVE"
+            ).first()
+
+        if not cart:
+            return Response(
+                {"error": "Cart not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 2. Find the item in this customer's cart
+        cart_item = cart.items.filter(id=item_id).first()
+
+        if not cart_item:
+            return Response(
+                {"error": "Cart item not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. Delete the item
+        cart_item.delete()
+
+        return Response(
+            {"message": "Item removed from cart successfully."},
+            status=status.HTTP_200_OK
+        )
+
+
+class ClearCartView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def delete(self, request):
+
+        # 1. Identify the customer's active cart
+        if request.user.is_authenticated:
+
+            cart = Cart.objects.filter(
+                user=request.user,
+                status="ACTIVE"
+            ).first()
+
+        else:
+
+            session_key = request.session.session_key
+
+            if not session_key:
+                return Response(
+                    {"message": "Cart is already empty."},
+                    status=status.HTTP_200_OK
+                )
+
+            cart = Cart.objects.filter(
+                session_key=session_key,
+                status="ACTIVE"
+            ).first()
+
+        # 2. Check whether cart exists
+        if not cart:
+            return Response(
+                {"message": "Cart is already empty."},
+                status=status.HTTP_200_OK
+            )
+
+        # 3. Delete all cart items
+        deleted_count, _ = cart.items.all().delete()
+
+        return Response(
+            {
+                "message": "Cart cleared successfully.",
+                "deleted_items": deleted_count
+            },
+            status=status.HTTP_200_OK
+        )
+    
