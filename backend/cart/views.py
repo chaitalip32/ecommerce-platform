@@ -8,8 +8,6 @@ from .models import Cart,CartItem
 from .serializer import CartSerializer, CartItemSerializer
 from catalog.models import ProductVariant
 
-
-
 class AddToCartView(APIView):
 
     permission_classes=[AllowAny]
@@ -364,3 +362,105 @@ class ClearCartView(APIView):
             status=status.HTTP_200_OK
         )
     
+class ValidateCartView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def post(self,request):
+
+        # 1. Identify the customers active cart
+        if request.user.is_authenticated:
+
+            cart=Cart.objects.filter(
+                user=request.user,
+                status="ACTIVE"
+            ).first()
+
+        else:
+
+            session_key = request.session.session_key
+
+            if not session_key:
+                return Response({
+                    "valid": False,
+                    "message": "Your cart is empty.",
+                    "issues": []
+                })
+
+            cart = Cart.objects.filter(
+                session_key=session_key,
+                status="ACTIVE"
+            ).first()
+
+        # 2. Check whether cart exists
+        if not cart:
+            return Response({
+                "validate": False,
+                "message": "Your cart is empty.",
+                "issues": []
+            })
+
+        # 3. Retrieve cart items
+        cart_items = cart.items.select_related(
+            "variant",
+            "variant__product"
+        ).all()
+
+        if not cart_items.exists():
+            return Response({
+                "valid": False,
+                "message": "Your cart is empty",
+                "issues": []
+            })
+
+        issues= []
+
+        # 4. Validate each cart item
+        for item in cart_items:
+
+            variant = item.variant
+            product = variant.product
+
+            # Check whether product is active
+            if not product.is_active:
+                issues.append({
+                    "variant_id": variant.id,
+                    "sku": variant.sku,
+                    "issue": "Product is inactive."
+                })
+
+                continue
+
+            # Check whether variant is active
+            if not variant.is_active:
+                issues.append({
+                    "variant_id": variant.id,
+                    "sku": variant.sku,
+                    "issue": "Product variant is inactive."
+                })
+
+                continue
+
+            # Check stock availabillity
+            if item.quantity > variant.stock_quantity:
+                issues.append({
+                    "variant_id": variant.id,
+                    "sku": variant.sku,
+                    "issue": "Insufficient stock.",
+                    "requested_quantity": item.quantity,
+                    "available_quantity": variant.stock_quantity
+                })
+
+        # 5. Return validation result
+        if issues:
+            return Response({
+                "valid": False,
+                "message": "Some cart item needs attention.",
+                "issues": issues
+            })
+
+        return Response({
+            "valid": True,
+            "message": "Your cart is ready for checkout",
+            "issues": []
+        })
